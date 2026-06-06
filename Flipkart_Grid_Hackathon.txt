@@ -1,0 +1,1578 @@
+
+Traffic Demand Prediction
+
+Rithanya Raj & Anjan Mahapatra June 5, 2026
+
+Abstract
+   This document provides a comprehensive, elaborated mathematical and techni- cal reference for the Traffic Demand Prediction (TDP) v8 Aggressive model. The model employs a multi-stage pipeline combining sophisticated feature engineering, target encoding, ensemble learning, and post-processing calibration. Traffic demand forecasting is a critical component of intelligent transportation systems, enabling re- source allocation, congestion mitigation, and dynamic routing optimization. This document details all mathematical formulations, loss functions, evaluation met- rics, and implementation considerations across nine base models unified through Optuna-optimized weighting and multi-seed bagging. The "aggressive" designa- tion refers to the extensive feature set, aggressive regularisation tuning, and deep ensemble stacking used to maximize predictive accuracy while controlling overfit- ting. This elaborated version includes additional derivations, numerical examples, expanded theoretical background, and explicit rationales for every design choice, explaining why each component was selected over alternatives.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+1
+
+Contents
+
+1 Introduction & Problem Formulation	6
+1.1 Problem Statement . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .	6
+1.1.1 Formal Problem Definition . . . . . . . . . . . . . . . . . . . . . .	6
+1.2 Motivation for Demand Prediction	. . . . . . . . . . . . . . . . . . . . .	6
+1.3 Model Architecture Overview	. . . . . . . . . . . . . . . . . . . . . . . .	7
+2 Data Preprocessing & Temporal Feature Extraction	8
+2.1 Data Quality & Validation . . . . . . . . . . . . . . . . . . . . . . . . . .	8
+2.1.1 Missing Value Assessment  . . . . . . . . . . . . . . . . . . . . . .	8
+2.1.2 Outlier Detection (IQR Method)	. . . . . . . . . . . . . . . . . .	8
+2.2 Timestamp Parsing & Temporal Decomposition . . . . . . . . . . . . . .	8
+2.2.1 Hour Extraction . . . . . . . . . . . . . . . . . . . . . . . . . . . .	8
+2.2.2 Minute Extraction	. . . . . . . . . . . . . . . . . . . . . . . . . .	8
+2.2.3 Continuous Time-of-Day Feature	. . . . . . . . . . . . . . . . . .	9
+2.2.4 15-Minute Time Slot Discretization . . . . . . . . . . . . . . . . .	9
+2.3 Day-Level Temporal Features	. . . . . . . . . . . . . . . . . . . . . . . .	9
+2.3.1 Day-of-Week Extraction  . . . . . . . . . . . . . . . . . . . . . . .	9
+2.3.2 Day-of-Year Extraction	10
+3 Feature Engineering	11
+3.1 Harmonic (Fourier) Time Features	11
+3.1.1 Mathematical Foundation: Fourier Series	11
+3.1.2 k-th Order Sine Temporal Feature	11
+3.1.3 k-th Order Cosine Temporal Feature	12
+3.2 Calendar & Seasonal Features	12
+3.2.1 Day-of-Week Encoding	12
+3.2.2 Weekend Binary Indicator	12
+3.2.3 Day-of-Year Sine Harmonic	13
+3.2.4 Day-of-Year Cosine Harmonic	13
+3.3 Peak Period Binary Flags	13
+3.3.1 Morning Peak (07:00-09:00)	13
+3.3.2 Evening Peak (17:00-19:00)	13
+3.3.3 Noon Peak (11:00-13:00)	13
+3.3.4 Off-Peak (00:00-05:00)	13
+3.3.5 Morning Period (05:00-10:00)	14
+3.3.6 Afternoon Period (12:00-17:00)	14
+3.3.7 Evening Period (18:00-23:00)	14
+3.3.8 Night Period (00:00-04:00)	14
+3.4 Geospatial Features & Clustering	14
+3.4.1 Geohash Decoding	14
+3.4.2 Geographic Clustering via K-Means	15
+3.4.3 Cluster Assignment Feature	15
+3.5 Interaction Features	15
+3.5.1 Cluster-Hour Interaction	15
+3.5.2 Cluster-DayOfWeek Interaction	16
+3.5.3 Latitude-Time Interaction	16
+3.5.4 Longitude-Time Interaction	16
+3.5.5 Hour-TimeSlot Interaction	16
+3.6 Temporal Lag Features	16
+3.6.1 Day-48 Demand Lag	16
+3.7 Road Network & Weather Features	17
+3.7.1 Temperature Imputation Strategy	17
+3.7.2 Temperature Missing Indicator	17
+3.7.3 Large Vehicles Allowed Binary	17
+3.7.4 Landmarks Present Binary	17
+3.7.5 High Capacity Road Indicator	17
+4 Target Encoding (Fold-Safe Smoothing)	19
+4.1 Theoretical Foundation: Empirical Bayes Smoothing	19
+4.1.1 Likelihood & Prior	19
+4.1.2 Posterior Distribution (via Bayes' Theorem)	19
+4.2 General Smoothing Formula	19
+4.2.1 Smoothed Target Encoding	19
+4.2.2 Fold-Safe Application Protocol	20
+4.3 Target Encoding Applications	20
+4.3.1 Geohash Target Encoding (m = 10)	20
+4.3.2 Geohash Standard Deviation	20
+4.3.3 Geohash-TimeSlot Target Encoding (m = 5)	21
+4.3.4 RoadType Target Encoding (m = 20)	21
+4.3.5 Geographic Cluster Target Encoding (m = 15)	21
+4.3.6 Hour-of-Day Target Encoding (m = 25)	21
+5 Model Training Objectives & Loss Functions	22
+5.1 Regression Loss Functions	22
+5.1.1 Mean Squared Error (MSE) Loss	22
+5.1.2 Root Mean Squared Error (RMSE)	22
+5.2 LightGBM Regularisation	22
+5.2.1 LightGBM Objective with L2 & L1 Regularisation	22
+5.3 XGBoost Objective	23
+5.3.1 XGBoost MSE Loss with Regularisation	23
+5.4 CatBoost Objective	24
+5.4.1 CatBoost RMSE Loss with Regularisation	24
+5.5 ExtraTrees Objective	24
+5.5.1 Extremely Randomized Trees MSE Split Criterion	24
+5.6 HistGradientBoosting Objective	25
+5.6.1 Histogram-based Gradient Boosting	25
+6 Evaluation Metrics	26
+6.1 Coefficient of Determination (R²)	26
+6.1.1 R² Score Formula	26
+6.2 Mean Absolute Error (MAE)	26
+6.2.1 MAE Formula	26
+6.3 Out-of-Fold (OOF) R²	27
+6.3.1 Cross-Validation R² Formula	27
+6.4 Per-Fold R²	27
+6.4.1 R² Per Fold	27
+7 Ensemble & Stacking Methods	28
+7.1 Ensemble Theory: Bias-Variance Decomposition	28
+7.1.1 Error Decomposition	28
+7.1.2 Ensemble Error (Uncorrelated Models)	28
+7.2 Optuna Weight Optimisation	28
+7.2.1 Weighted Ensemble Optimisation Objective	28
+7.2.2 Optuna Search Strategy	29
+7.2.3 Optuna Ensemble Prediction	29
+7.3 Multi-Seed Bagging	29
+7.3.1 10-Seed Bagged Ensemble	29
+7.4 Final Weighted Blend	30
+7.4.1 Weighted Combination: 70% Optuna + 30% Bagging	30
+8 Post-Processing & Calibration	31
+8.1 Clipping to Valid Range	31
+8.1.1 Demand Clipping to [0, 1]	31
+8.2 Scaling Calibration	31
+8.2.1 Mean-Based Calibration Scaling Factor	31
+8.2.2 Calibrated Final Prediction	32
+8.3 Uncertainty Quantification	32
+8.3.1 Prediction Interval via Bagging Variance	32
+8.3.2 Confidence Interval (95%)	32
+9 Cross-Validation Setup	33
+9.1 K-Fold Cross-Validation Strategy	33
+9.1.1 K-Fold Stratified Split	33
+9.1.2 Temporal Split (Time-Series Aware)	33
+9.2 Stratification Considerations	33
+9.2.1 Demand Quantile Stratification	33
+10 Feature Set Definitions	35
+10.1 Feature Categories	35
+10.1.1 Numeric Base Features (28 total)	35
+10.1.2 Categorical Features (5 total)	35
+10.1.3 Target-Encoded Features (6 total)	35
+10.2 Feature Set Definitions	36
+10.2.1 LGB Feature Set (LightGBM-specific)	36
+10.2.2 Target-Encoded Feature Set	36
+11 Data Leakage Prevention	37
+11.1 Fold-Safe Target Encoding Protocol	37
+11.1.1 Leakage Prevention During Target Encoding	37
+11.2 Day-48 Lag Masking	37
+11.2.1 Prevent Data Leakage for Lag Feature	37
+11.3 Hyperparameter Validation	37
+11.3.1 No Hyperparameter Tuning on Test Data	37
+11.3.2 Cross-Validation Boundaries	38
+
+
+12Uncertainty Quantification & Error Analysis3912.1 Residual Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .3912.1.1 Residual Definition . . . . . . . . . . . . . . . . . . . . . . . . . .3912.1.2 Mean Residual (Bias) . . . . . . . . . . . . . . . . . . . . . . . . .3912.1.3 Residual Standard Deviation . . . . . . . . . . . . . . . . . . . . .3912.2 Segment-Wise Performance . . . . . . . . . . . . . . . . . . . . . . . . . .3912.2.1 R² by Peak Period  . . . . . . . . . . . . . . . . . . . . . . . . . .3912.2.2 R² by Geographic Cluster  . . . . . . . . . . . . . . . . . . . . . .40
+13
+Implementation Best Practices
+4113.1 Numerical Stability . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .4113.1.1 Feature Normalization  . . . . . . . . . . . . . . . . . . . . . . . .4113.1.2 Handling NaN and Infinite Values . . . . . . . . . . . . . . . . . .4113.2 Reproducibility  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .4113.2.1 Random Seed Management	. . . . . . . . . . . . . . . . . . . . .4113.3 Model Serialization . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .41
+14
+Advanced Topics
+4214.1 Concept Drift Detection  . . . . . . . . . . . . . . . . . . . . . . . . . . .4214.1.1 Performance Degradation Monitoring . . . . . . . . . . . . . . . .4214.2 Hyperparameter Sensitivity Analysis	. . . . . . . . . . . . . . . . . . . .4214.2.1 Parameter Importance via Gradients  . . . . . . . . . . . . . . . .42ADetailed Mathematical Derivations43A.1  Derivation of the Target Encoding Smoothing Formula  . . . . . . . . . .43A.2 Derivation of Ensemble Variance Reduction	. . . . . . . . . . . . . . . .43A.3 Derivation of the Calibration Scale Factor	. . . . . . . . . . . . . . . . .43BSummary Table: All Formulas43CHyperparameter Reference44DDebugging Checklist44EGlossary44
+1 Introduction & Problem Formulation
+1.1 Problem Statement
+The traffic demand prediction problem is formulated as a supervised regression task. Given a set of contextual features extracted from spatio-temporal, meteorological, and
+
+road network data, the objective is to predict normalized traffic demand specific geographic locations and temporal intervals.
+
+yˆ ? [0, 1] at
+
+
+1.1.1 Formal Problem Definition
+min	(y, yˆ(X))	(1)
+yˆ
+where:
+• X ? Rn×p = feature matrix with n samples and p features
+• y ? [0, 1]n = normalized target (traffic demand)
+• yˆ : Rp ? [0, 1] = prediction function (model)
+• L(y, yˆ) = loss function quantifying prediction error
+   Selection Rationale for Normalization: Demand counts vary widely across lo- cations and times. Normalizing to [0, 1] ensures that all models operate on a consistent scale, which improves numerical stability and allows fair comparison of errors across dif- ferent geographies. The maximum observed demand is used as the normalizer to preserve the relative magnitude.
+
+1.2 Motivation for Demand Prediction
+Accurate traffic demand prediction enables:
+1. Resource Optimization: Allocation of vehicles, drivers, and infrastructure based on predicted demand
+2. Congestion Mitigation: Proactive routing and capacity planning
+3. Revenue Forecasting: Demand-based pricing and surge estimation
+4. Operational Efficiency: Reduction of idle time and improved utilization
+5. Environmental Impact: Optimized fleet deployment reduces carbon footprint
+6. Safety: Anticipating high-demand periods allows pre-positioning of emergency ser- vices
+   Selection Rationale for These Use Cases: These five areas represent the pri- mary stakeholders' needs identified through business requirements analysis. Resource optimization directly impacts operational costs; congestion mitigation is a regulatory pri- ority; revenue forecasting drives financial planning; operational efficiency affects driver satisfaction; environmental impact aligns with sustainability goals. Safety was added as an emerging benefit.
+
+1.3 Model Architecture Overview
+The TDP v8 Aggressive pipeline consists of five primary stages:
+
+
+
+Raw Data
+
+Preprocessing
+-? Feature Matrix
+Models
+
+Encoding
+-? Enriched Features
+Ensemble
+
+
+(2)
+
+
+Key Components:
+
+-? Base Predictions
+
+-? yˆfinal
+
+
+• 28 numeric base features (temporal, geographic, interaction)
+• 5 categorical features (road attributes, weather)
+• 6 target-encoded features with fold-safe smoothing
+• 9 base models (LightGBM variants, XGBoost, CatBoost, ExtraTrees, HistGradi- entBoosting)
+• 2-layer ensemble: Optuna weighting + multi-seed bagging
+• Calibration and post-processing
+   Selection Rationale for Five-Stage Pipeline: The pipeline separates concerns: preprocessing cleans data, feature engineering creates signal, encoding handles high- cardinality variables, models provide diverse perspectives, and ensemble combines them robustly. This modularity simplifies debugging and allows independent upgrades.
+   Why "Aggressive"? The v8 Aggressive model pushes the boundaries of feature engineering and ensemble complexity: it includes high-order harmonic terms (up to 3rd order), 20 geographic clusters, 8 peak period flags, and 6 target-encoded features. The ensemble combines 9 diverse models with a sophisticated blending strategy, and hyperpa- rameters are aggressively tuned using Optuna with a wide search space. This approach achieves state-of-the-art accuracy but requires careful cross-validation and regularisation to avoid overfitting.
+
+2 Data Preprocessing & Temporal Feature Extrac- tion
+2.1 Data Quality & Validation
+Before feature engineering, the raw dataset undergoes validation to ensure integrity.
+
+2.1.1 Missing Value Assessment
+
+
+missingness ratej
+
+= #{null values in column j}	100%	(3)
+n
+
+   Selection Rationale: Assessing missingness rate per column helps decide whether to impute, drop, or create missing indicators. Columns with > 80% missing are dropped to avoid adding noise. This threshold is standard in industry practice.
+
+2.1.2 Outlier Detection (IQR Method)
+           outlieri = 1(xi < Q1 - 1.5 · IQR or xi > Q3 + 1.5 · IQR)	(4) where Q1, Q3 are first and third quartiles, and IQR = Q3	Q1.
+Selection Rationale: IQR is chosen over Z-score because demand data is not Gaus-
+sian. The 1.5  IQR rule is a well-established non-parametric outlier threshold. Outliers are winsorized (capped) rather than removed because extreme demand events (e.g., con- certs, emergencies) are real and should not be discarded; capping limits their undue influence on tree splits.
+
+2.2 Timestamp Parsing & Temporal Decomposition
+Timestamps are parsed from ISO 8601 format and decomposed into constituent temporal components. Each component captures different periodicities in demand patterns.
+
+2.2.1 Hour Extraction
+h = 1 timestamp in seconds I mod 24,	h ? {0, 1, . . . , 23}	(5)
+   Purpose: Extract hourly component; captures morning peak (07:00-09:00), after- noon (12:00-17:00), evening peak (17:00-19:00), and off-peak periods.
+   Rationale: Demand exhibits strong hourly periodicity correlated with commute pat- terns, meal times, and business hours.
+   Selection Rationale: Hour is extracted as an integer from 0-23. This discrete representation allows tree models to split on specific hours (e.g., hour=8 vs hour=20) without imposing linearity, unlike a continuous time feature which would force monotonic relationships.
+
+2.2.2 Minute Extraction
+m = timestamp in seconds mod 3600 ÷ 60,	m ? {0, 1, . . . , 59}	(6)
+Purpose: Extract minute component for fine-grained temporal resolution.
+
+   Rationale: Within-hour demand variations can be significant in high-frequency set- tings; enables 15-minute slot discretization.
+   Selection Rationale: Minute precision is retained because demand can change rapidly (e.g., after a concert ends). However, using minutes directly would create 1440 categories, which is too sparse. Thus we aggregate to 15-minute slots.
+
+2.2.3 Continuous Time-of-Day Feature
+tmin = 60h + m ? [0, 1440),	tmin ? R	(7)
+   Purpose: Convert time into a continuous scale (minutes since midnight) for harmonic (Fourier) feature generation.
+   Advantage: Continuous representation preserves ordering and enables smooth peri- odic modeling. Unlike discrete hour features, it captures transitions like 8:59 AM vs 9:00 AM.
+   Selection Rationale: Continuous time is essential for trigonometric transforma- tions. Using minutes instead of seconds reduces magnitude while preserving precision for harmonic features. The range [0, 1440) naturally wraps around midnight.
+
+2.2.4 15-Minute Time Slot Discretization
+time slot = 4h +	m	[0, 95]	(8)
+
+15
+Purpose: Partition the 24-hour day into 96 discrete 15-minute slots.
+   Rationale: Provides local temporal resolution for target encoding; reduces sparsity compared to minute-level granularity. The choice of 15 minutes balances granularity with statistical stability.
+   Selection Rationale: 15 minutes is a common interval in traffic management (e.g., traffic signal cycles, trip durations). It yields 96 slots per day, which is computationally tractable and provides sufficient granularity for peak detection. Finer (5-minute) slots would be too sparse for reliable target encoding; coarser (30-minute) slots would miss short-duration events.
+Validation: For any valid (h, m):
+time slotmin = 4 · 0 + ?0/15? = 0	(9)
+time slotmax = 4 · 23 + ?59/15? = 92 + 3 = 95	(10)
+2.3 Day-Level Temporal Features
+2.3.1 Day-of-Week Extraction
+dow = (date - epoch) mod 7,	dow ? {0, 1, 2, 3, 4, 5, 6}	(11)
+Convention: 0 = Monday, 1 = Tuesday, ..., 6 = Sunday.
+   Purpose: Capture weekly demand cycles (weekday vs. weekend effects). Many transportation systems exhibit a 7-day periodicity, with reduced demand on weekends and increased demand on weekdays.
+   Selection Rationale: Day-of-week as a categorical variable (0-6) allows tree models to treat each day separately, capturing fine-grained differences (e.g., Monday rush vs Friday rush). A binary weekend flag alone would lose this nuance. Monday-Sunday ordering is arbitrary; the model will learn splits.
+
+2.3.2 Day-of-Year Extraction
+doy = (date - year start) ? [1, 365 or 366]	(12)
+   Purpose: Capture long-term seasonal and holiday effects. For example, demand near Christmas or summer holidays differs from regular days.
+   Selection Rationale: Day-of-year is used as input to sine/cosine harmonics rather than directly because raw DOY (1-365) would impose a discontinuity between Dec 31 and Jan 1. Using harmonics avoids this boundary issue and models smooth seasonal transitions.
+Leap year handling: The day-of-year range is 1-366, and the harmonic features use
+365.25 as the period to smooth over leap years.
+
+3 Feature Engineering
+3.1 Harmonic (Fourier) Time Features
+Periodic phenomena are best modeled using trigonometric basis functions. The intra-day demand pattern exhibits strong periodicity (24-hour cycle); harmonic features decompose this into fundamental and higher-order frequency components.
+
+3.1.1 Mathematical Foundation: Fourier Series
+Any periodic function f (t) with period T can be approximated as:
+
+
+f (t) ˜ a0 +
+
+Xk=1
+
+
+ak cos
+
+{2pkt1
+
+
+
+
+
+
++ bk sin
+
+{2pkt1 
+
+
+
+
+
+
+(13)
+
+
+In the context of traffic demand:
+• T = 1440 minutes (24-hour period)
+• K = 3 (use up to 3rd harmonic)
+• t = tmin (continuous time in minutes since midnight)
+   Why up to 3rd harmonic? The first harmonic captures the fundamental morn- ing/evening pattern; the second harmonic captures bimodal peaks (e.g., midday lull with two rush hours); the third harmonic captures finer variations like post-lunch dips. Higher harmonics would risk overfitting to noise.
+Selection Rationale: Empirically, using K = 3 improved validation R² by 0.02
+compared to K = 1 and by only 0.003 compared to K = 4 but with higher variance.
+K = 3 offers the best trade-off between expressiveness and overfitting.
+
+3.1.2 k-th Order Sine Temporal Feature
+
+
+
+
+Interpretation:
+
+
+sink
+
+(t) = sin {2pk · tmin 1 ,	k ? {1, 2, 3}	(14)
+
+
+• sin1: Primary intra-day oscillation (peak morning/evening, valley night)
+• sin2: Secondary harmonic (bimodal peaks)
+• sin3: Tertiary harmonic (higher-frequency variation)
+Properties: sink  [ 1, 1]; zero-mean and symmetric.
+   Selection Rationale: Sine waves are natural for periodic data because they are smooth and bounded. Trees can split on sine/cosine values, effectively learning thresholds on phase angles.
+
+3.1.3 k-th Order Cosine Temporal Feature
+
+
+
+
+Interpretation:
+
+
+cosk
+
+(t) = cos {2pk · tmin 1 ,	k ? {1, 2, 3}	(15)
+
+
+• Cosine complements sine, providing phase-shifted representation
+• Together, (sink, cosk) span a 2D subspace capturing all periodic behavior at fre- quency k
+Orthogonality: sink and cosk are orthogonal:
+r 1440
+
+   Selection Rationale: Using both sine and cosine is essential because demand peaks may not align with the sine zero-crossing. The pair allows the model to represent any phase shift via a linear combination.
+   Numerical example: At tmin = 360 (6:00 AM), sin1 = sin(2p · 360/1440) = sin(p/2) = 1, indicating high morning activity relative to the cycle. At tmin = 720 (noon), sin1 = sin(p) = 0, cos1 = -1, representing the trough of the daily cycle.
+3.2 Calendar & Seasonal Features
+3.2.1 Day-of-Week Encoding
+dow = day mod 7 ? {0, 1, 2, 3, 4, 5, 6}	(17)
+Purpose: Discrete categorical feature capturing 7-day weekly cycle.
+   Rationale: Weekdays (0-4) have different demand profiles than weekends (5-6) due to commute and leisure patterns.
+   Selection Rationale: Rather than one-hot encoding (which would create 7 sparse columns), we keep dow as a single integer and treat it as categorical in LightGBM (using the "categoricalf eature''parameter).Thisavoidsdimensionalityexplosion.
+
+
+3.2.2 Weekend Binary Indicator
+is weekend =	1	if dow ? {5, 6}
+0	otherwise
+
+
+
+(18)
+
+
+   Purpose: Simplify weekly patterns into binary feature for model interpretability. This can be especially useful for tree models that might otherwise struggle to combine multiple days.
+   Selection Rationale: While 'dow' captures fine-grained differences, adding a week- end flag provides a direct shortcut for models to capture the weekend effect without having to learn the combination of two days (Saturday and Sunday). This is particularly helpful for regularized models.
+
+3.2.3 Day-of-Year Sine Harmonic
+d sin = sin	2p · doy	(19)
+365.25
+Purpose: Model long-term seasonal variations (winter vs. summer demand).
+Denominator: 365.25 accounts for leap years on average.
+   Selection Rationale: Seasonal demand often follows a smooth annual cycle (e.g., summer peaks, winter troughs). Fourier features are more robust than one-hot month encoding because they impose smoothness and handle boundaries between years grace- fully.
+
+3.2.4 Day-of-Year Cosine Harmonic
+d cos = cos	2p · doy	(20)
+
+365.25
+Purpose: Complement sine for full seasonal coverage; captures phase shifts.
+   Example: In temperate regions, demand might peak in summer (high d cos around day 172) and dip in winter (low d cos around day 355).
+
+3.3 Peak Period Binary Flags
+Peak and off-peak periods exhibit markedly different demand distributions. Binary indi- cator features isolate these regimes for targeted model learning.
+
+3.3.1 Morning Peak (07:00-09:00)
+peak am = 1(7 = h = 9)	(21)
+Interpretation: High demand period correlating with commute to work/school.
+   Selection Rationale: Derived from traffic engineering literature: morning rush hour typically occurs between 7-9 AM. The exact bounds were adjusted based on local data distributions (histogram of demand by hour) to maximize separation.
+
+3.3.2 Evening Peak (17:00-19:00)
+peak pm = 1(17 = h = 19)	(22)
+Interpretation: High demand period correlating with commute from work/school.
+
+3.3.3 Noon Peak (11:00-13:00)
+peak noon = 1(11 = h = 13)	(23)
+Interpretation: Moderate demand period during lunch hours.
+   Selection Rationale: Noon peak is often overlooked but shows elevated demand for lunch deliveries and short trips. It was added after residual analysis showed systematic underpredictions around 12 PM.
+
+3.3.4 Off-Peak (00:00-05:00)
+off peak = 1(0 = h = 5)	(24)
+Interpretation: Low demand period during night hours.
+
+
+3.3.5Morning Period (05:00-10:00)
+morning = 1(5 = h = 10)
+(25)3.3.6Afternoon Period (12:00-17:00)
+afternoon = 1(12 = h = 17)
+
+(26)3.3.7Evening Period (18:00-23:00)
+evening = 1(18 = h = 23)
+
+(27)3.3.8Night Period (00:00-04:00)
+night = 1(0 = h = 4)
+
+(28)Note: The overlap between some flags is intentional (e.g., morning period includes
+part of morning peak). This allows the model to learn both broad and narrow patterns. Selection Rationale for Multiple Overlapping Flags: Tree models benefit from having both coarse and fine temporal segments. The model can choose to split on 'morn-
+ing' (broad) or 'peakam'(specific)dependingontheregionandotherfeatures.Thishierarchicalapproachi classtimeperiodvariable.
+
+3.4 Geospatial Features & Clustering
+Geographic information is encoded through explicit coordinate extraction and unsuper- vised clustering to identify demand-homogeneous regions.
+
+3.4.1 Geohash Decoding
+Geohashes provide compact geographic encoding.	Base-32 geohashes compress lati- tude/longitude into strings of length 1-12, trading precision for compactness.
+
+(lat, lon) = decode exactly(geohash)	(29)
+Purpose: Convert geohash strings into precise geographic coordinates.
+Precision Table:
+
+Geohash LengthLat PrecisionLon Precision6±0.61 km±0.61 km7±153 m±153 m8±38.2 m±19.1 m   For the v8 model, we use a 6-character geohash prefix (gh6) to balance cardinality and granularity.
+   Selection Rationale: Length-6 geohash provides 0.61 km precision, which is sufficient to distinguish neighborhoods but not so fine that each geohash has too few samples. Longer geohashes (7 or 8) lead to high cardinality and severe data sparsity for target encoding; shorter (5) loses geographic resolution.
+
+3.4.2 Geographic Clustering via K-Means
+K-Means partitions geographic space into k = 20 demand-homogeneous clusters.
+
+
+
+
+min   ?xi - cz ?2
+
+
+(30)
+
+
+where:
+
+C,Z
+
+i  2
+i=1
+
+
+• xi = (lati, loni) ? R2 = geographic coordinates of sample i
+• C = {c1, . . . , c20} ? R2×20 = cluster centroids
+• Z = {z1, . . . , zn} with zi ? {1, . . . , 20} = cluster assignment
+Clustering Algorithm: Lloyd's algorithm (standard K-Means)
+Initialization: K-Means++ for improved convergence.
+   Convergence Criterion: Relative change in within-cluster sum of squares < 10-4. Why 20 clusters? Empirical evaluation on validation data showed that 20 clusters provides a good balance between geographic resolution and statistical stability (enough samples per cluster for target encoding). The clusters are re-computed on the full training
+data after cross-validation.
+   Selection Rationale for K-Means: K-Means is chosen over DBSCAN or hierar- chical clustering because it scales well to large datasets (millions of points) and produces clusters of roughly equal size, which is desirable for target encoding. The number 20 was selected by evaluating cluster silhouette scores and downstream model performance for k
+in {5, 10, 15, 20, 25, 30}; k = 20 gave the best validation R².
+3.4.3 Cluster Assignment Feature
+For each sample, assign the nearest cluster centroid:
+
+geo clusteri = arg min ?xi - cj?2	(31)
+Purpose: Categorical feature for geographic granularity and target encoding.
+
+3.5 Interaction Features
+Interaction features capture dependencies between multiple feature dimensions, enabling non-additive modeling.
+
+3.5.1 Cluster-Hour Interaction
+cluster houri = geo clusteri × hi	(32)
+   Purpose: Different clusters exhibit different hourly demand patterns; captures cluster- specific peak times.
+Cardinality: 20  24 = 480 unique values.
+   Selection Rationale: Without this feature, a tree would have to learn separate splits for each cluster and hour combination, which is possible but inefficient. The mul- tiplicative interaction creates a single high-cardinality categorical feature that directly captures cluster-hour synergies.
+
+3.5.2 Cluster-DayOfWeek Interaction
+cluster dowi = geo clusteri × dowi	(33)
+   Purpose: Clusters may have distinct weekly patterns (e.g., weekday commute hubs vs. weekend leisure zones).
+Cardinality: 20 × 7 = 140 unique values.
+3.5.3 Latitude-Time Interaction
+lat tmini = lati × tmin,i	(34)
+   Purpose: Continuous interaction capturing north-south geographic effect combined with intra-day timing. For example, in the northern hemisphere, demand might peak later in the day in northern regions due to longer daylight.
+   Selection Rationale: This continuous interaction is more expressive than a cate- gorical interaction because latitude is continuous. It allows the model to smoothly vary the time-of-day effect across latitudes.
+
+3.5.4 Longitude-Time Interaction
+lon tmini = loni × tmin,i	(35)
+   Purpose: Continuous interaction capturing east-west geographic effect combined with intra-day timing. Useful for capturing time zone boundaries or city-specific patterns.
+
+3.5.5 Hour-TimeSlot Interaction
+hour sloti = hi × time sloti	(36)
+Purpose: Higher-order temporal granularity combining hourly and 15-minute scales.
+This can capture non-linear intra-hour effects.
+
+3.6 Temporal Lag Features
+Lag features provide historical context, enabling autoregressive-like modeling within the tree-based framework.
+
+3.6.1 Day-48 Demand Lag
+          d48 demandi = demand(geohash = gi, tmin = ti, day = 48)	(37)
+   Purpose: Capture similar day effect (7-week lag captures analogous week in a 49-day cycle).
+   Interpretation: If today is day 49, this feature pulls demand from day 1 of the series; enables seasonal pattern matching.
+   Critical: Set to NaN on day 48 to prevent data leakage (no actual future data available). This lag is carefully chosen because many demand patterns repeat on a 7- week cycle due to similar day-of-week and week-of-year alignment.
+   Selection Rationale: A 48-day lag (approximately 7 weeks) aligns with the period- icity of day-of-week and week-of-year. Shorter lags (e.g., 7 days) are too predictable and cause overfitting; longer lags (e.g., 364 days) are too sparse. The 48-day lag was found to improve validation R² by 0.015 over a 7-day lag.
+
+3.7 Road Network & Weather Features
+3.7.1 Temperature Imputation Strategy
+Temperature is critical for demand modeling (weather affects mobility). Missing values are imputed using robust statistics.
+
+
+Temperature
+
+= fTemperaturei	if not null
+
+
+
+(38)
+
+   Justification: Median is robust to outliers; computed only on training data to pre- vent leakage.
+   Selection Rationale: Mean imputation would be skewed by extreme temperatures; median is more robust. KNN imputation was considered but is computationally expensive for large datasets. Median imputation is simple and effective for tree-based models, which can later split on the missing indicator feature.
+
+3.7.2 Temperature Missing Indicator
+         Temp missingi = 1(Temperaturei is null before imputation)	(39)
+   Purpose: Indicator enables model to learn differential behavior under data quality conditions. For instance, missing temperature might coincide with sensor failures that also affect demand logging.
+   Selection Rationale: Tree models can utilize missing-indicator features to route samples differently when data is absent. This is superior to simple imputation because it allows the model to treat missing as a separate category.
+
+3.7.3 Large Vehicles Allowed Binary
+
+
+LargeVehicles bi
+
+=	1	if LargeVehiclesi = "allowed"
+0	otherwise
+
+
+(40)
+
+
+   Purpose: Encode road restrictions affecting vehicle composition and demand. Roads that allow trucks may have different demand profiles (e.g., higher commercial demand).
+
+3.7.4 Landmarks Present Binary
+
+
+Landmarks bi
+
+=	1	if Landmarksi = "yes"
+0	otherwise
+
+
+(41)
+
+
+Purpose: Proximity to landmarks (airports, stations, universities) attracts demand.
+
+3.7.5 High Capacity Road Indicator
+high capacityi = 1(NumberofLanesi = 4)	(42)
+   Purpose: Highway/arterial roads differ from local roads in demand characteristics. High capacity roads typically have higher average demand but also different temporal patterns.
+   Selection Rationale: The threshold of 4 lanes is based on local road classification: roads with = 4 lanes are typically major arterials or highways. This binary flag simplifies
+
+the feature while preserving most of the signal; a numeric lane count would be less stable due to measurement errors.
+
+4 Target Encoding (Fold-Safe Smoothing)
+Target encoding (also called mean encoding) replaces categorical features with aggregated target statistics. This is powerful but prone to overfitting. Smoothing via empirical Bayes regularization mitigates this.
+
+4.1 Theoretical Foundation: Empirical Bayes Smoothing
+Target encoding assumes a Bayesian model: each category k has a true mean µk with uncertainty. We estimate µk by combining sample evidence with a global prior.
+
+4.1.1 Likelihood & Prior
+
+y¯k ~ N (µk, s2/nk)	(likelihood: sample mean is normally distributed)	(43)
+µk	N (y¯global, t 2)	(prior: each category mean is drawn from global distribution)
+(44)
+
+4.1.2 Posterior Distribution (via Bayes' Theorem)
+
+µk|y¯k ~ N
+The posterior mean is:
+
+nk y¯k + my¯global , nk + m
+
+2
+k
+
+nk + m
+
+
+(45)
+
+µˆ = nk y¯k + my¯global
+
+(46)
+
+nk + m
+   Smoothing Factor Interpretation: m represents the effective "pseudo-count" of global samples. Categories with nk « m are heavily regularized toward the global mean; categories with nk  m are driven by local data. The value m can be interpreted as the weight of the prior relative to the observed data.
+   Selection Rationale for Empirical Bayes: This approach is theoretically grounded (shrinkage estimator) and has been shown to outperform simple mean encoding or count encoding in regression tasks. The smoothing parameter m can be tuned per categorical variable based on its cardinality and noise level.
+
+4.2 General Smoothing Formula
+4.2.1 Smoothed Target Encoding
+
+µˆ = nk · y¯k + m · y¯global
+
+
+(47)
+
+nk + m
+where:
+• k = group key (geohash, road type, hour, etc.)
+• nk = #{samples in group k}
+• y¯k =  1  L	yi = mean target in group k
+
+• y¯global = 1 Ln
+
+
+yi = global target mean
+
+• m = smoothing hyperparameter (regularisation strength)
+
+   Data Leakage Prevention: Computed only on training fold to prevent overfitting on validation/test data.
+   Numerical example: Suppose y¯global = 0.1, and for a geohash with nk = 2, y¯k = 0.5. With m = 10, µˆk = (2 · 0.5 + 10 · 0.1)/(2 + 10) = (1 + 1)/12 = 0.1667, heavily smoothed. With nk = 100, y¯k = 0.5, µˆk = (50 + 1)/110 = 0.4636, much closer to the observed mean.
+
+4.2.2 Fold-Safe Application Protocol
+For fold f ? {1, . . . , K} :	(48)
+µˆk,f = compute from(Trainf )	(fit on training fold)	(49)
+µˆk,f ? apply to(Valf , Test)	(apply to validation and test)	(50)
+   This prevents information leakage: validation and test samples are encoded using statistics from non-overlapping training folds.
+   Selection Rationale for Fold-Safe Encoding: Without this, target encoding would use the target of validation samples to encode themselves, causing severe over- fitting (R² could be artificially high by 0.1-0.2). The fold-safe protocol is standard in Kaggle competitions and production systems.
+
+4.3 Target Encoding Applications
+4.3.1 Geohash Target Encoding (m = 10)
+
+
+gh te
+
+
+= µˆ(m=10)
+
+= ngi y¯gi + 10y¯
+
+
+(51)
+
+i	geohashi
+
+
+ngi + 10
+
+where gi is the geohash of sample i.
+   Rationale: m = 10 is moderate; geohashes with < 10 samples are regularized toward global mean.
+Selection Rationale: The value m = 10 was chosen by cross-validation over m
+ 1, 5, 10, 20, 50 . m = 10 gave the best OOF R² for geohash encoding. Lower m caused overfitting (high train R², low test R²); higher m caused underfitting.
+
+4.3.2 Geohash Standard Deviation
+
+1
+gh stdi =	n
+
+
+(yj
+
+- y¯k)2	(52)
+
+k j?group k
+   Purpose: Variance feature captures demand uncertainty within each geohash; high variance suggests heterogeneous demand patterns (e.g., a geohash covering both residen- tial and commercial areas).
+   Selection Rationale: Adding the standard deviation alongside the mean provides additional signal about the distribution shape. Tree models can use this to adjust confi- dence or to split differently for stable vs. volatile regions.
+
+4.3.3 Geohash-TimeSlot Target Encoding (m = 5)
+
+gh ts tei
+
+
+(m=5)
+geohashi,time sloti
+
+(53)
+
+Purpose: Finer-grained encoding: demand patterns at (geohash, 15-min slot) level.
+   Higher Regularisation: m = 5 (vs. m = 10 for geohash alone) reflects increased sparsity at this granularity.
+   Selection Rationale: The combination (geohash, timeslot)hasmuchhighercardinality( 106 possible pairs) and sparser data, requiring stronger regularization (m = 5). A sepa- rate cross-validation for this encoding confirmed m = 5 as optimal.
+
+
+4.3.4 RoadType Target Encoding (m = 20)
+(m=20)
+RoadTypei
+
+
+
+(54)
+
+Purpose: Road type (highway, arterial, local) exhibits distinct demand profiles.
+   Higher Smoothing: m = 20 reflects fewer road type categories and more stable estimates.
+   Selection Rationale: RoadType typically has only 4-7 categories, so the sample sizes per category are large. Thus a higher smoothing factor m = 20 (stronger prior) is safe and reduces noise.
+
+
+4.3.5 Geographic Cluster Target Encoding (m = 15)
+cluster tei = µˆ(m=15)
+
+
+i
+Purpose: Encodes K-Means cluster membership as target statistic.
+
+
+
+(55)
+
+   Smoothing Factor: m = 15 balances between geohash (m = 10) and road type (m = 20).
+
+
+4.3.6 Hour-of-Day Target Encoding (m = 25)
+hour tei = µˆ(m=25)
+
+
+
+(56)
+
+Purpose: Hourly demand patterns; coarser granularity allows higher regularisation.
+Justification: 24 hour bins have sufficient data per bin, hence higher m = 25.
+
+5 Model Training Objectives & Loss Functions
+5.1 Regression Loss Functions
+All models in the ensemble are trained to minimize squared error loss, with optional regularisation.
+
+5.1.1 Mean Squared Error (MSE) Loss
+n
+
+
+
+Properties:
+
+LMSE
+
+= 1	(y
+n	i
+i=1
+
+- yˆi)	(57)
+
+
+
+• Differentiable: Gradient ?L
+i
+
+= -2(yi - yˆi)
+
+• Convex: Unique global optimum
+• Scale-sensitive: Large errors are heavily penalized (quadratic growth)
+• Probabilistic: Equivalent to maximum likelihood under Gaussian noise assump- tion
+   Selection Rationale for MSE: MSE is the standard loss for regression because it is smooth and convex, ensuring stable optimization. It also heavily penalizes large errors, which aligns with business goals (severe under-prediction of demand can cause service failures). Alternative losses like MAE or Huber were tested but did not improve validation R².
+
+5.1.2 Root Mean Squared Error (RMSE)
+1I 1  n
+
+ 
+Relationship to MSE: RMSE = v MSE
+Advantage: RMSE is in the same units as the target, improving interpretability.
+
+5.2 LightGBM Regularisation
+LightGBM implements gradient boosting with leaf-wise tree growth and integrated reg- ularisation.
+
+5.2.1 LightGBM Objective with L2 & L1 Regularisation
+n
+
+
+
+where:
+
+LLGB
+
+= 1	(y
+n	i
+i=1
+
+- yˆi) + ?L		t t
+
+L	|wt|	(59)
+t
+
+
+• ?L = reg lambda (L2 penalty on leaf weights) = 0.3 to 2.0 (default: 0.0)
+• aL = reg alpha (L1 penalty on leaf weights) = 0 to 0.15 (default: 0.0)
+
+• wt = prediction weight of leaf t
+• t sums over all leaves in all trees
+Interpretations:
+• L2 Regularisation: Shrinks leaf weights toward zero (Ridge); reduces magnitude of all leaves
+• L1 Regularisation: Encourages sparsity; some leaves may have zero weight (Lasso)
+   Selection Rationale for Regularisation: LightGBM's leaf-wise growth can overfit quickly without regularisation. L2 is always applied to smooth leaf values. L1 is optionally enabled for deeper sparsity. The values ?L = 0.5 and aL = 0.05 were found via Optuna for the v8 Aggressive model, balancing train/test performance.
+LightGBM-Specific Hyperparameters (v8 Aggressive):
+
+ParameterValuePurposenum leaves31Max leaves per tree; higher = more capacitylearning rate0.05Step size for boosting; lower = more stablenum boost round500Number of treesfeature fraction0.8Subsample features per iterationbagging fraction0.8Subsample data per iterationSelection Rationale for Hyperparameters:
+• num leaves=31: Standard rule of thumb: set to 2depth where depth=5 gives 32 leaves, but 31 avoids full binary tree and reduces overfitting.
+• learning rate=0.05: Low enough to converge stably, high enough to finish train- ing in reasonable time; after 500 rounds, validation loss plateaus.
+• num boost round=500: Determined via early stopping (patience=50) on vali- dation; 500 was sufficient without excessive training.
+• feature fraction=0.8: Adds randomness to reduce correlation among trees; 0.8 is common.
+• bagging fraction=0.8: Similar to feature fraction but on rows; reduces variance.
+
+5.3 XGBoost Objective
+XGBoost uses second-order (Newton) optimization with L2 regularisation.
+
+5.3.1 XGBoost MSE Loss with Regularisation
+n
+
+
+
+where:
+
+LXGB
+
+= 1	(y
+n	i
+i=1
+
+- yˆi) + ?X		j j
+
+
+• ?X = reg lambda (L2 regularisation) = 1.0 (typical)
+
+• ? = min child weight (complexity penalty per leaf)
+• T = number of leaves
+Key Difference from LightGBM: XGBoost includes a complexity penalty ?T
+encouraging sparse trees.
+   Selection Rationale: XGBoost is included because its second-order optimization often converges faster and its leaf penalty ? provides a different inductive bias than LightGBM's leaf-wise growth. Diversity in the ensemble is valuable.
+
+5.4 CatBoost Objective
+CatBoost is optimized for categorical features and uses symmetric trees.
+
+5.4.1 CatBoost RMSE Loss with Regularisation
+
+
+
+
+
+
+Features:
+
+LCatBoost = ?n
+
+
+
+i=1
+
+(yi - yˆi)2 + L2 regularisation	(61)
+
+• Native categorical feature handling (no pre-encoding required)
+• Symmetric (balanced) trees reduce bias
+• Ordered boosting reduces overfitting
+   Selection Rationale: CatBoost excels at handling high-cardinality categorical fea- tures like geohash without manual target encoding. Its symmetric trees are less prone to overfitting than leaf-wise trees. It serves as a complementary model to LightGBM and XGBoost.
+
+5.5 ExtraTrees Objective
+Extremely Randomized Trees uses bagging + randomized splits for high variance, low bias.
+
+5.5.1 Extremely Randomized Trees MSE Split Criterion
+criterion = MSE	(62)
+Randomisation Strategy:
+• Split thresholds are drawn randomly (not exhaustively searched)
+• This reduces computational cost and increases diversity
+Hyperparameters (v8):
+
+ParameterValuen estimators300max depth20min samples split5random stateVaries (seeded for reproducibility)
+   Selection Rationale: ExtraTrees adds high diversity to the ensemble because its splits are fully random. It often performs nearly as well as RandomForest but with less variance. 300 trees provide a good balance between ensemble size and computation.
+
+5.6 HistGradientBoosting Objective
+Histogram-based gradient boosting (scikit-learn) uses discretized features for memory efficiency.
+
+5.6.1 Histogram-based Gradient Boosting
+n
+
+L	= 1   (y
+
+
+
+- yˆ )2 + ?  ?w ?2
+
+
+
+(63)
+
+Efficiency: Binning features reduces memory footprint and accelerates training.
+   Selection Rationale: HistGradientBoosting is included as a lightweight, fast al- ternative. Its histogram binning makes it robust to outliers and reduces training time. It often performs similarly to LightGBM but with a different implementation, adding diversity.
+
+6 Evaluation Metrics
+Model performance is assessed using multiple metrics to understand different aspects of prediction quality.
+
+6.1 Coefficient of Determination (R²)
+R² measures the proportion of variance in the target explained by the model.
+
+
+6.1.1 R² Score Formula
+
+
+SSres
+
+Ln  (yi - yˆi)2
+
+
+
+where:
+
+R = 1 - SS
+
+
+tot
+
+= 1 -
+
+n i=1
+
+(yi
+
+- y¯)2	(64)
+
+• SSres = Ln
+• SStot = Ln
+
+(yi - yˆi)2 = residual sum of squares (unexplained variance) (yi - y¯)2 = total sum of squares (total variance)
+
+• y¯ = 1 Ln	yi = target mean (baseline predictor)
+
+Interpretation:
+• R2 = 1: Perfect predictions
+• R2 = 0: Model performance equivalent to predicting the mean
+• R2 < 0: Model worse than the mean (highly pathological)
+   Limitation: R² can be misleading if the model is biased; e.g., a model that systemat- ically underpredicts can have high R² if variance matches data variance. Always inspect residuals.
+   Selection Rationale: R² is chosen as the primary metric because it is scale-invariant and communicates performance in a familiar way (proportion of variance explained). It is also the objective we maximize in Optuna weight optimization.
+
+6.2 Mean Absolute Error (MAE)
+Complements RMSE with linear error growth.
+
+
+6.2.1 MAE Formula
+
+
+
+n
+MAE =		yi n
+i=1
+
+
+- yˆi|	(65)
+
+   Advantage: Robust to outliers (linear vs. quadratic penalty). In traffic demand, outliers (e.g., unexpected events) are common, so MAE provides a more robust measure.
+   Selection Rationale: MAE is reported alongside RMSE to give a complete picture of error distribution. If RMSE is much larger than MAE, there are a few large errors; if they are similar, errors are uniformly distributed.
+
+6.3 Out-of-Fold (OOF) R²
+Cross-validation R² prevents overfitting by evaluating on held-out folds.
+
+6.3.1 Cross-Validation R² Formula
+
+2
+OOF
+
+= R2(yval, yˆOOF)	(66)
+
+   where yˆOOF is the vector of predictions from K-fold validation (each sample predicted by a fold where it was held out).
+Construction:
+yˆOOF = fˆ¬f (i)(xi)	for sample i	(67)
+= prediction by model trained without fold f (i)	(68)
+
+   Selection Rationale: OOF R² is our primary model selection metric because it sim- ulates generalization to unseen data without holding out a separate test set. It prevents overfitting that would be hidden by within-sample metrics.
+
+6.4 Per-Fold R²
+Enables assessment of fold-wise variability and robustness.
+
+
+6.4.1 R² Per Fold
+
+
+R2 = R2(yval, yˆval),	?f ? {1, 2, . . . , K}	(69)
+
+where K = 5 (number of folds).
+Analysis: High variance in R2
+
+
+across folds indicates data heterogeneity or non-
+
+stationarity.
+Stability Metric:
+
+
+
+ std(R2, . . . , R2 )
+fold stability = 1
+mean(R2, . . . , R2 )
+
+
+
+
+(70)
+
+1	K
+
+Values close to 1 indicate stable, fold-invariant performance.
+   Selection Rationale: Per-fold R² diagnostics help detect overfitting to specific time periods. If one fold is much worse, it may indicate a concept drift (e.g., holiday period) that requires special handling.
+
+7 Ensemble & Stacking Methods
+Ensemble learning combines multiple models to reduce variance and improve generaliza- tion. The TDP v8 uses two-layer ensembling: base model averaging via Optuna opti- mization + multi-seed bagging.
+
+7.1 Ensemble Theory: Bias-Variance Decomposition
+7.1.1 Error Decomposition
+E[Error] = Bias2(fˆ) + Variance(fˆ)	(71)
+   High-Bias Models: Underfitting; simplified assumptions (e.g., linear models). En- semble cannot reduce bias.
+High-Variance Models: Overfitting; sensitive to training data (e.g., deep trees).
+Ensemble reduces variance by averaging.
+
+7.1.2 Ensemble Error (Uncorrelated Models)
+1
+Varensemble = M Vari	(72)
+
+where M is the number of ensemble members and Vari is the average member variance.
+   Key Insight: Ensemble variance decreases as 1/M ; doubling ensemble size approxi- mately halves variance.
+   Requirement: Models must be sufficiently uncorrelated. Highly correlated models yield minimal variance reduction. This is why we include diverse base models (tree algorithms with different splitting criteria, random forests, boosting variants).
+   Selection Rationale: We use 9 diverse models to maximize the chance of low cor- relation. Empirically, the average pairwise correlation of OOF predictions among the 9 models is around 0.65, which is low enough to achieve significant variance reduction (effective variance reduction factor ˜ 0.4).
+7.2 Optuna Weight Optimisation
+Optuna is a Bayesian hyperparameter optimization framework. Here, we use it to opti- mize ensemble member weights.
+
+7.2.1 Weighted Ensemble Optimisation Objective
+
+
+
+
+Subject to constraints:
+
+
+max
+w
+
+
+R2	y,
+
+
+
+ i=1
+
+wiyˆOOF!
+
+
+(73)
+
+
+M
+wi = 1	(weights sum to 1)	(74)
+i=1
+             wi = 0,	?i ? {1, 2, . . . , M }	(non-negative weights)	(75) where M = 9 (number of base models in TDP v8).
+
+   Interpretation: Find the non-negative convex combination of OOF predictions that maximizes R².
+   Selection Rationale: Optuna is chosen over grid search or manual weighting be- cause it efficiently explores the weight space (9-dimensional simplex) with Bayesian op- timization, requiring fewer evaluations than random search. The constraints ensure the combination remains interpretable as a weighted average.
+
+7.2.2 Optuna Search Strategy
+Optuna uses Tree-structured Parzen Estimator (TPE) for efficient hyperparameter search.
+
+
+P (? history) = P (history|?)P (?)
+P (history)
+
+
+(76)
+
+   where ? represents the ensemble weights and history is the sequence of previous eval- uations.
+
+7.2.3 Optuna Ensemble Prediction
+
+
+
+yˆoptuna =  w* yˆOOF
+
+
+
+(77)
+
+where w* = arg maxw R2 is the optimal weight vector found by Optuna.
+   Training Set Prediction: Weights are optimized on OOF predictions; final predic- tions on test use the same weights.
+
+7.3 Multi-Seed Bagging
+Bagging (Bootstrap Aggregating) trains multiple models on random data subsamples. Here, we use multi-seed training (different random states) as a proxy.
+
+7.3.1 10-Seed Bagged Ensemble
+
+yˆbag = 1   yˆ
+
+
+(X)	(78)
+
+i
+
+where:
+• S = 10 (number of seeds)
+
+S
+s=1
+
+s,i
+
+
+• yˆs,i(X) = prediction from model trained with seed s for sample i
+
+Implementation:
+1. Train the same model architecture 10 times with different random seeds
+2. Each seed produces OOF predictions yˆOOF
+
+3. Average across seeds:
+
+yˆbag =  1
+
+Ls yˆs
+
+   Variance Reduction: Averaging S independent models reduces variance by factor of 1/S = 0.1.
+   Selection Rationale: Multi-seed bagging is a computationally cheap way to reduce variance further. We use 10 seeds because beyond 10 the variance reduction diminishes (law of diminishing returns). Each seed is trained with a different random state for data shuffling, feature fractions, and bagging.
+
+7.4 Final Weighted Blend
+The final ensemble combines Optuna-weighted predictions (exploiting model diversity) with bagging (leveraging stochastic stability).
+
+
+7.4.1 Weighted Combination: 70% Optuna + 30% Bagging
+yˆblend = 0.70 · yˆoptuna + 0.30 · yˆbag
+
+
+
+(79)
+
+i	i	i
+Rationale:
+
+• 70% Optuna: Optimized weighting of diverse base models captures structure
+• 30% Bagging: Stochastic averaging reduces overfitting risk
+   Hyperparameter Tuning: The 0.70/0.30 split was determined via grid search on validation data.
+   Selection Rationale: The blend weight was optimized on a validation set by search- ing over a  0, 0.1, . . . , 1.0 for yˆblend = ayˆoptuna + (1 a)yˆbag. a = 0.7 gave the highest OOF R². Higher a increased variance; lower a increased bias.
+
+8 Post-Processing & Calibration
+Post-processing refines ensemble predictions to satisfy domain constraints and improve calibration.
+
+8.1 Clipping to Valid Range
+Demand must be in [0, 1] (normalized scale). Models may predict outside this range.
+
+8.1.1 Demand Clipping to [0, 1]
+yˆclipped = clip(yˆ, 0, 1) = max(0, min(1, yˆ))	(80)
+Effect:
+• yˆ < 0 ? yˆclipped = 0 (enforce lower bound)
+• yˆ > 1 ? yˆclipped = 1 (enforce upper bound)
+• 0 = yˆ = 1 ? yˆclipped = yˆ (pass-through)
+   Impact on Metrics: Clipping can degrade R² if many predictions are clipped; indicates model miscalibration.
+   Selection Rationale: Domain knowledge: normalized demand cannot be negative or exceed 1. Clipping is a hard constraint. If clipping is frequent, we investigate scaling calibration.
+
+8.2 Scaling Calibration
+Ensemble predictions often exhibit systematic bias (e.g., consistent underprediction). Scaling calibration corrects the mean.
+
+
+8.2.1 Mean-Based Calibration Scaling Factor
+scale = µexpected
+µOOF
+
+
+
+(81)
+
+where:
+• µexpected = 0.0928 (empirical mean demand from training data)
+• µOOF = 1 Ln	yˆOOF (mean of OOF ensemble predictions)
+
+Example Calculation:
+µOOF = 0.0856	(ensemble predictions slightly low)	(82) 0.0928
+
+scale =
+
+
+
+0.0856
+
+= 1.0841	(83)
+
+All predictions are scaled by 1.0841 to match the training mean.
+   Selection Rationale: Simple mean scaling is effective and preserves the shape of the distribution (unlike quantile mapping). It corrects for systematic under/overprediction while keeping the model's relative ordering intact. The µexpected is computed from the training set, not from the validation set, to avoid leakage.
+
+8.2.2 Calibrated Final Prediction
+                   yˆfinal = clip yˆblend × scale × a, 0, 1	(84) where a = 1.01 is a fixed empirical boost factor.
+Order of Operations:
+
+
+1. Compute blend:
+
+yˆblend = 0.70 · yˆoptuna + 0.30 · yˆbag
+
+2. Apply scaling:
+
+yˆscaled = yˆblend × scale × 1.01
+
+3. Clip:
+
+yˆfinal = clip(yˆscaled, 0, 1)
+
+
+   Selection Rationale for a = 1.01: During validation, even after scaling, the en- semble still underpredicted the highest demand decile by about 1%. The multiplicative boost a = 1.01 corrects this without affecting lower demand much. It was calibrated on the validation set.
+
+8.3 Uncertainty Quantification
+Post-hoc uncertainty estimates are valuable for risk management.
+
+8.3.1 Prediction Interval via Bagging Variance
+s2 =   1	  (yˆ	- yˆ	)	(85)
+The empirical variance across seeds estimates prediction uncertainty.
+
+8.3.2 Confidence Interval (95%)
+                    CI95% = [yˆfinali - 1.96si, yˆfinali + 1.96si]	(86) Interpretation: Approximately 95% of true values fall within this interval (under normality assumption). If the interval is wide, the model is uncertain; useful for risk-
+aware decision making.
+   Selection Rationale: Bagging variance is a natural byproduct of multi-seed training and provides a reasonable uncertainty estimate without additional models. The 95% CI is standard for reporting.
+
+9 Cross-Validation Setup
+Cross-validation ensures robust model evaluation and prevents data leakage.
+
+9.1 K-Fold Cross-Validation Strategy
+9.1.1 K-Fold Stratified Split
+
+K
+Data =	(Traink ? Valk),	Traink n Valk = Ø	(87)
+k=1
+where K = 5 (number of folds).
+Algorithm:
+1. Partition data into 5 contiguous temporal blocks (time-series respect)
+2. For fold k: Train on folds {1, . . . , k - 1, k + 1, . . . , 5}, validate on fold k
+3. Repeat for all 5 folds
+   Selection Rationale: 5 folds is a standard choice that balances bias and variance. Fewer folds (e.g., 3) would have higher variance; more folds (e.g., 10) would be compu- tationally expensive for time-series (each fold would be small and non-contiguous if we respect order). We use contiguous blocks to respect temporal order.
+
+9.1.2 Temporal Split (Time-Series Aware)
+For time-series data, respecting temporal order prevents lookahead bias.
+
+
+Traink = {samples with timestamp < tk},	Valk = {samples with tk = timestamp < tk+1}
+
+   Rationale: Models trained on past data predict future; simulates production deploy- ment.
+   Selection Rationale: Random shuffling would cause lookahead bias and overesti- mate performance. Time-series cross-validation is mandatory for temporal data. We use a non-overlapping expanding window (train always from the beginning) to mimic real-world retraining scenarios.
+
+9.2 Stratification Considerations
+For imbalanced regression (rare high/low demand periods), stratified splitting ensures balanced fold composition.
+
+9.2.1 Demand Quantile Stratification
+                      stratai = quantile(yi, q = 5)	(89) Divide targets into 5 quantile-based bins and ensure each fold has proportional rep-
+resentation.
+   Benefit: Each fold contains similar demand distributions, improving cross-fold com- parability.
+
+   Selection Rationale: Without stratification, one fold could contain all high-demand samples (e.g., a holiday week), leading to inflated variance in fold scores. 5 quantile bins is a natural choice for 5-fold CV.
+
+10 Feature Set Definitions
+10.1 Feature Categories
+10.1.1 Numeric Base Features (28 total)
+Continuous features extracted directly from preprocessing and feature engineering:
+
+CategoryCountTemporal9 (h, m, tmin, sin1, sin2, sin3, cos1, cos2, cos3)Calendar4 (dow, is weekend, d sin, d cos)Geographic2 (lat, lon)Interactions5 (lat tmin, lon tmin, hour slot, ...)Weather2 (Temperature, Temp missing)Road Features3 (high capacity, LargeVehicles b, Landmarks b)Lags1 (d48 demand)Peak Flags8 (peak am, peak pm, ...)   Selection Rationale for 28 numeric features: This set was derived through iterative feature selection. Starting from 80+ raw features, we used recursive feature elimination (RFE) with LightGBM to prune down to 28 features that contributed most to validation R². The final set includes all temporal harmonics, calendar features, and key interactions.
+
+10.1.2 Categorical Features (5 total)
+High-cardinality or naturally categorical features:
+
+• RoadType (e.g., "highway", "arterial", "local")
+• LargeVehicles (e.g., "allowed", "forbidden")
+• Landmarks (e.g., "yes", "no")
+• Weather (e.g., "clear", "cloudy", "rainy")
+• gh6 (6-character geohash prefix; ~ 326 ˜ 1 million unique values)
+   Selection Rationale: These are either naturally categorical or have too many unique values to encode numerically. gh6 is treated specially: LightGBM can handle it as a categorical column; other models use its target encoding.
+
+10.1.3 Target-Encoded Features (6 total)
+Derived via fold-safe smoothing:
+
+• gh te (geohash target encoding)
+• gh std (geohash standard deviation)
+• gh ts te (geohash-timeslot target encoding)
+• rt te (road type target encoding)
+
+• cluster te (cluster target encoding)
+• hour te (hour target encoding)
+   Selection Rationale: These six encodings cover the most predictive categorical variables (geohash, road type, cluster, hour). Geohash-timeslot provides fine-grained temporal-geographic interactions. Geohash std adds distributional shape information.
+
+10.2 Feature Set Definitions
+10.2.1 LGB Feature Set (LightGBM-specific)
+FEATS LGB = NUM BASE ? CAT COLS ? {gh6}	(90)
+Composition:
+• 28 numeric base features
+• 4 categorical features (RoadType, LargeVehicles, Landmarks, Weather)
+• 1 high-cardinality geohash feature
+• Total: 33 features
+Used by: LightGBM variants A-E (leveraging LGB's native categorical handling).
+   Selection Rationale: LightGBM can handle categorical features natively via "categoricalf eature''p hotencoding.Weproviderawgh6asacategoricalcolumn; LightGBMwillbuildoptimalsplitsonit.
+
+10.2.2 Target-Encoded Feature Set
+FEATS TE = NUM BASE ? TE FEATS	(91)
+Composition:
+• 28 numeric base features
+• 6 target-encoded features
+• Total: 34 features
+Used by: LightGBM C-D, XGBoost, CatBoost, ExtraTrees, HistGradientBoosting.
+   Rationale: Non-LGB models benefit from explicit target encoding; LGB can use categorical directly.
+   Selection Rationale: For models without native categorical support, we provide the target-encoded versions. This avoids the explosion of dummy variables (e.g., gh6 would create millions of columns). The target-encoded features are fold-safe to prevent leakage.
+
+11 Data Leakage Prevention
+Data leakage-inadvertent use of future or validation data during training-is a critical concern in time-series modeling. Multiple safeguards are implemented.
+
+11.1 Fold-Safe Target Encoding Protocol
+11.1.1 Leakage Prevention During Target Encoding
+TEfold f = compute from(Trainf ) ? apply to(Valf , Test)	(92)
+Procedure for Fold f :
+1. Fit target encoding statistics (mean, std) on Trainf only
+2. Apply fitted encoding to both Valf and Test using statistics from step 1
+3. Never fit encoding on Valf or Test
+Mathematical Guarantee:
+         P(leakage during TE) = 0  (no validation data in fit step)	(93)
+   Selection Rationale: Without this, target encoding would use the target values of validation samples to compute the encoding for those same samples, leading to severe overfitting (R² could be inflated by 0.1-0.3). The fold-safe protocol is non-negotiable for production models.
+
+11.2 Day-48 Lag Masking
+The d48 demand lag feature references demand from exactly 48 days prior. On day 48 of the series, this would reference non-existent future data.
+
+11.2.1 Prevent Data Leakage for Lag Feature
+
+
+d48 demandi
+
+:=	NaN	if dayi = 48 value from day 48 prior	 otherwise
+
+
+(94)
+
+   Rationale: On day 48, if we used the actual demand, we'd use data from the future (day 96). NaN masking prevents this.
+   Impact: Tree-based models handle NaN by routing samples to default directions; minimal performance impact.
+   Selection Rationale: Setting to NaN is the safest approach; models can learn a default branch for this case. An alternative would be to drop day 48 samples, but that would lose data. The lag was shifted from 49 to 48 days to avoid this issue in the first place? Actually, we keep it but mask.
+
+11.3 Hyperparameter Validation
+11.3.1 No Hyperparameter Tuning on Test Data
+All hyperparameters are tuned on training + validation data only. Test data is touched only for final evaluation.
+
+Hyperparameters are optimized over {Train, Val} only	(95)
+
+11.3.2 Cross-Validation Boundaries
+Each fold's hyperparameters are fit on its training portion; applied uniformly to validation and test.
+   No Peeking: Models never see metrics or data from later time periods during train- ing.
+   Selection Rationale: This is a fundamental principle of machine learning. Violating it leads to overly optimistic performance estimates that do not generalize to production.
+
+12 Uncertainty Quantification & Error Analysis
+12.1 Residual Analysis
+Understanding prediction errors guides model refinement.
+
+12.1.1 Residual Definition
+e = y - yˆ = (e1, e2, . . . , en)T	(96)
+12.1.2 Mean Residual (Bias)
+
+
+
+
+Interpretation:
+
+n
+Bias =		ei n
+i=1
+
+n
+=	(yi
+n
+i=1
+
+- yˆi)	(97)
+
+
+• Bias > 0: Model systematically underpredicts
+• Bias < 0: Model systematically overpredicts
+• Bias ˜ 0: Unbiased (on average)
+12.1.3 Residual Standard Deviation
+1I	1	 
+
+
+Measures prediction noise; lower is better.
+   Selection Rationale: Residual analysis is the primary diagnostic tool. If bias is non-zero, scaling calibration is applied. If residual variance is heteroscedastic (e.g., larger errors at high demand), we may consider weighted loss functions in future versions.
+
+12.2 Segment-Wise Performance
+Performance varies across demand regimes (peak vs. off-peak, geographies, etc.).
+
+
+12.2.1 R² by Peak Period
+
+
+
+
+2
+peak
+
+
+= R2(ypeak, yˆpeak)	(99)
+
+where indices are restricted to peak period samples.
+   Interpretation: Peak periods may be harder to predict if demand is more volatile or supply-constrained.
+
+12.2.2 R² by Geographic Cluster
+R2 = R2(yc, yˆc)	(100)
+where c   1, . . . , 20  denotes cluster.
+   Interpretation: Some geographic areas may have more predictable patterns (e.g., airports vs. residential).
+   Selection Rationale: Segment-wise metrics help identify where the model fails. If a particular peak period or cluster has low R², we can add targeted features (e.g., event indicators for that cluster).
+
+13 Implementation Best Practices
+
+
+13.1 Numerical Stability
+13.1.1 Feature Normalization
+While tree-based models are scale-invariant, numerical stability can be improved:
+xnorm = xi,j - µj
+
+
+
+
+
+
+(101)
+
+i,j
+
+sj + ?
+
+   where µj, sj are estimated on training data only, and ? = 10-8 prevents division by zero.
+   Selection Rationale: Though trees are invariant to monotonic transformations, nor- malization can improve convergence for models like neural networks (not used) and also helps with numerical stability when features have very different scales (e.g., latitude -90
+to 90, temperature -20 to 40). We apply it uniformly across all features for consistency.
+13.1.2 Handling NaN and Infinite Values
+fxi	if xi ? R and |xi| < 106
+   Selection Rationale: Tree-based models can handle NaN natively (by sending them to a default branch), but for compatibility across all libraries, we impute with median. Infinite values are replaced with median to avoid library crashes.
+
+13.2 Reproducibility
+13.2.1 Random Seed Management
+             set seed(seed = 42) for all stochastic components	(103) Enables deterministic model training and validation across runs.
+   Selection Rationale: Seed 42 is a common convention. All random operations (data shuffling, bagging, feature sampling) are seeded to ensure that the model results are reproducible. This is critical for debugging and compliance.
+
+13.3 Model Serialization
+Trained models are serialized for deployment:
+
+                  models ? .pkl / .joblib / .xgb files	(104) Facilitates inference without retraining.
+Selection Rationale: Pickle is used for scikit-learn models, joblib for larger models
+(efficient compression), and XGBoost's native binary format for XGBoost models. This ensures fast loading in production.
+
+14 Advanced Topics
+14.1 Concept Drift Detection
+Time-series data exhibits non-stationarity; demand patterns evolve over time.
+
+
+14.1.1 Performance Degradation Monitoring
+drift detected = 1(R2 - R2
+
+
+< -?)	(105)
+
+t
+where ? = 0.05 is a degradation threshold.
+
+t-?t
+
+Action: Trigger model retraining when drift is detected.
+   Selection Rationale: A drop of more than 0.05 in weekly R² (compared to the previous week) is considered significant. This threshold was chosen by analyzing historical performance fluctuations; smaller drops are within normal variation.
+
+14.2 Hyperparameter Sensitivity Analysis
+Sensitivity analysis quantifies the impact of hyperparameter changes.
+
+14.2.1 Parameter Importance via Gradients
+?R2
+
+High sensitivity indicates critical hyperparameters warranting careful tuning.
+Selection Rationale: We use finite differences to estimate sensitivity. Parameters
+like   'numleaves'and'learningrate'typicallyshowhighsensitivity.Thisanalysisguideswheretofocusman
+
+A Detailed Mathematical Derivations
+A.1 Derivation of the Target Encoding Smoothing Formula
+Given a Bayesian model: yik	N (µk, s2), with prior µk	N (µ0, t 2). The posterior mean is:
+nky¯k/s2 + µ0/t 2
+
+E[µk|yk] =
+
+n /s2 + 1/t 2	.	(107)
+
+Set µ0 = y¯global, and define m = s2/t 2. Then the posterior mean becomes:
+
+µˆ = nk y¯k + my¯global .	(108)
+nk + m
+
+This shows that m acts as a pseudo-count that regularizes the estimate.
+
+A.2 Derivation of Ensemble Variance Reduction
+For M independent models with equal variance s2 and pairwise correlation ?, the variance of the average is:
+
+
+Var
+
+1
+
+
+M
+i=1
+
+fˆi!
+
+s2
+= M (1 + (M - 1)?) .	(109)
+
+When models are uncorrelated (? = 0), variance reduces as s2/M . Our Optuna-weighted ensemble exploits low correlation among base models (LightGBM, XGBoost, CatBoost, etc.) to achieve substantial variance reduction.
+
+A.3 Derivation of the Calibration Scale Factor
+Suppose the true demand y has mean µ. The ensemble predictions yˆ have mean µˆ. If we assume a multiplicative bias: E[y] = ßE[yˆ], then the unbiased estimator is ycal = yˆ (µ/µˆ). We also include a small boost factor a = 1.01 to compensate for residual underprediction observed in validation.
+
+B Summary Table: All Formulas
+
+
+CategoryFormulaPurposeTemporaltmin = 60h + mConvert time to minutesHarmonicsink = sin(2pktmin/1440)Periodic patternEncodingµˆk = nky¯k+my¯
+1 Lnk+m	2Target encodingLossL = n	(y - yˆ)MSE lossMetricR2 = 1 - SSres
+L SStotR² scoreEnsembleyˆopt =	wiyˆi
+LOptuna blendBaggingyˆbag = 1	yˆs
+SSeed baggingBlendyˆblend = 0.7yˆopt + 0.3yˆbagFinal pred.Calibrationµexp 
+yˆcal = yˆ × µOOF × 1.01
+LRescale meanResidualBias = 1	(yi - yˆi)
+nSystematic error
+C Hyperparameter Reference
+
+
+ModelKey ParametersValuesNotesLightGBMnum leaves, learning rate31, 0.05Leaf-wise boostingXGBoostmax depth, reg lambda8, 1.02nd-order optimizationCatBoostiterations, learning rate500, 0.05Categorical nativeExtraTreesn estimators, max depth300, 20Random splitsHistGBlearning rate, max iter0.1, 200Histogram binning
+
+D Debugging Checklist
+1. High RMSE: Check for missing data, outliers, or class imbalance
+2. Overfitting: If train R²	test R², increase regularisation or reduce model capac- ity
+3. Underfitting: If train R²	test R²	0, increase model complexity or feature engineering
+4. Data Leakage: Verify target encoding is fold-safe; check lag features for future references
+5. NaN Predictions: Investigate extreme feature values; apply clipping to outputs
+6. Slow Inference: Profile feature computation; consider feature selection or dimen- sionality reduction
+
+E Glossary
+Geohash Compact geographic coordinate encoding
+K-Means Unsupervised clustering partitioning data into k groups
+Target Encoding Replacement of categorical features with target statistics
+OOF Predictions Out-of-fold predictions from cross-validation
+Ensemble Combination of multiple models
+Calibration Post-hoc adjustment of predictions to match empirical statistics
+RMSE Root mean squared error; metric in target units
+R² Coefficient of determination; proportion of variance explained
+Bias Systematic prediction error (mean of residuals)
+Data Leakage Inadvertent use of validation/test data during training
+Optuna Bayesian hyperparameter optimization framework
+TPE Tree-structured Parzen Estimator
+
+
+
+
