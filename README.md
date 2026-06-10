@@ -181,11 +181,11 @@ where:
 
 | Symbol | Description |
 |--------|-------------|
-| \(t\) | Temporal index |
-| \(P\) | Length of the cycle period |
-| \(k\) | Harmonic order |
-| \(\phi_{\sin}^{(k)}\) | Sine harmonic encoding |
-| \(\phi_{\cos}^{(k)}\) | Cosine harmonic encoding |
+| $$\(t\)$$ | Temporal index |
+| $$\(P\)$$ | Length of the cycle period |
+| $$\(k\)$$ | Harmonic order |
+| $$\(\phi_{\sin}^{(k)}\)$$ | Sine harmonic encoding |
+| $$\(\phi_{\cos}^{(k)}\)$$ | Cosine harmonic encoding |
 
 The resulting feature space preserves periodic continuity and enables the model to learn recurring traffic patterns more effectively than conventional timestamp representations.
 
@@ -233,11 +233,11 @@ where
 
 | Symbol | Description |
 |--------|-------------|
-| \(N\) | Number of observations |
-| \(K\) | Number of clusters |
-| \(\mathbf{x}_i\) | Spatial coordinate vector |
-| \(\mathbf{c}_k\) | Cluster centroid |
-| \(\|\cdot\|_2\) | Euclidean distance |
+| $$\(N\)$$ | Number of observations |
+| $$\(K\)$$ | Number of clusters |
+| $$\(\mathbf{x}_i\)$$ | Spatial coordinate vector |
+| $$\(\mathbf{c}_k\)$$ | Cluster centroid |
+| $$\(\|\cdot\|_2\)$$ | Euclidean distance |
 
 The resulting cluster assignments serve as region-level traffic descriptors and enable the forecasting models to learn location-specific demand patterns.
 
@@ -259,9 +259,9 @@ where
 
 | Symbol | Description |
 |--------|-------------|
-| \(y_t\) | Traffic demand at time \(t\) |
-| \(h\) | Lag horizon |
-| \(Lag_t^{(h)}\) | Historical demand observation |
+| $$\(y_t\)$$ | Traffic demand at time $$\(t\)$$ |
+| $$\(h\)$$ | Lag horizon |
+| $$\(Lag_t^{(h)}\)$$ | Historical demand observation |
 
 Examples include
 
@@ -281,7 +281,7 @@ $$
 RM_t^{(w)} = \frac{1}{w} \sum_{i=1}^{w} y_{t-i}
 $$
 
-where \(w\) denotes the rolling window size.
+where $$\(w\)$$ denotes the rolling window size.
 
 Demand volatility is represented through rolling variance
 
@@ -305,7 +305,7 @@ Many categorical variables possess high cardinality and cannot be represented ef
 
 To address this challenge, smoothed target encoding is employed.
 
-For a category \(c\), the encoded representation is defined as
+For a category $$\(c\)$$, the encoded representation is defined as
 
 $$
 TE(c) = \frac{n_c \mu_c + \alpha \mu_g}{n_c + \alpha}
@@ -315,10 +315,10 @@ where
 
 | Symbol | Description |
 |--------|-------------|
-| \(n_c\) | Number of observations in category \(c\) |
-| \(\mu_c\) | Mean target value of category \(c\) |
-| \(\mu_g\) | Global target mean |
-| \(\alpha\) | Smoothing coefficient |
+| $$\(n_c\)$$ | Number of observations in category $$\(c\)$$ |
+| $$\(\mu_c\)$$ | Mean target value of category $$\(c\)$$ |
+| $$\(\mu_g\)$$ | Global target mean |
+| $$\(\alpha\)$$ | Smoothing coefficient |
 
 The smoothing parameter prevents overfitting for rare categories by shrinking category statistics toward the global mean.
 
@@ -340,11 +340,11 @@ where
 
 | Symbol | Description |
 |--------|-------------|
-| \(\hat y_i\) | Predicted demand |
-| \(M\) | Number of boosting rounds |
-| \(\eta\) | Learning rate |
-| \(h_m(\cdot)\) | Decision tree at iteration \(m\) |
-| \(\mathbf{x}_i\) | Feature vector |
+| $$\(\hat y_i\)$$ | Predicted demand |
+| $$\(M\)$$ | Number of boosting rounds |
+| $$\(\eta\)$$ | Learning rate |
+| $$\(h_m(\cdot)\)$$ | Decision tree at iteration \(m\) |
+| $$\(\mathbf{x}_i\)$$ | Feature vector |
 
 This additive formulation allows the model to iteratively reduce prediction error while capturing complex nonlinear interactions among traffic features.
 
@@ -354,7 +354,7 @@ This additive formulation allows the model to iteratively reduce prediction erro
 
 The final prediction is generated through weighted model aggregation.
 
-Given \(K\) base learners, the ensemble prediction is defined as
+Given $$\(K\)$$ base learners, the ensemble prediction is defined as
 
 $$
 \hat{y}_i^{ensemble} = \sum_{j=1}^{K} w_j \hat{y}_i^{(j)}
@@ -376,9 +376,9 @@ Here,
 
 | Symbol | Description |
 |--------|-------------|
-| $$\(w_j\)$$ | Weight assigned to model \(j\) |
-| \(\hat y_i^{(j)}\) | Prediction from model \(j\) |
-| \(K\) | Number of base learners |
+| $$\(w_j\)$$ | Weight assigned to model $$\(j\)$$ |
+| $$\(\hat y_i^{(j)}\)$$ | Prediction from model $$\(j\)$$ |
+| $$\(K\)$$ | Number of base learners |
 
 The optimal weight vector is obtained through Bayesian optimization using Optuna.
 
@@ -396,14 +396,16 @@ $$
 
 where
 
-- \(\mu_{\text{expected}}\) denotes the expected target mean,
-- \(\mu_{\text{OOF}}\) denotes the mean out-of-fold prediction.
+- $$\(\mu_{\text{expected}}\)$$ denotes the expected target mean,
+- $$\(\mu_{\text{OOF}}\)$$ denotes the mean out-of-fold prediction.
 
 The calibrated prediction is computed as
 
 $$
-\hat y_i^{cal} = \operatorname{clip} \left( \hat y_i^{ensemble} \times CF \times 1.01, \; 0, \; 1 \right)
+\hat{y}_i^{\text{cal}} = \text{clip}\left( \hat{y}_i^{\text{ensemble}} \times CF \times 1.01, \; 0, \; 1 \right)
 $$
+
+where $\text{clip}(x, \text{min}, \text{max}) = \max(\min(x, \text{max}), \text{min})$.
 
 ensuring that predictions remain within the valid target range.
 
@@ -425,7 +427,7 @@ $$
 
 denotes the sample mean of the target variable.
 
-An \(R^2\) value closer to 1 indicates superior predictive performance and stronger explanatory power of the forecasting model.
+An $$\(R^2\)$$ value closer to 1 indicates superior predictive performance and stronger explanatory power of the forecasting model.
 
 ## Experimental Results
 
