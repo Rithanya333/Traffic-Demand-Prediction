@@ -376,7 +376,7 @@ Here,
 
 | Symbol | Description |
 |--------|-------------|
-| \(w_j\) | Weight assigned to model \(j\) |
+| $$\(w_j\)$$ | Weight assigned to model \(j\) |
 | \(\hat y_i^{(j)}\) | Prediction from model \(j\) |
 | \(K\) | Number of base learners |
 
@@ -487,3 +487,9 @@ Potential future improvements include:
 ## Conclusion
 
 This project demonstrates how spatio-temporal intelligence, historical demand memory, ensemble learning, and calibration techniques can be integrated into a unified forecasting framework. The resulting solution achieves strong predictive performance while remaining scalable, interpretable, and deployable in real-world transportation systems.
+
+---
+
+## Author
+
+Rithanya Raj & Anjan Mahapatra
