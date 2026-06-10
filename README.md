@@ -158,15 +158,12 @@ To preserve cyclic relationships, Fourier harmonic encodings are employed.
 
 For a periodic signal with period \(P\), the \(k\)-th harmonic representation is defined as
 
-\[
+$$
 \phi_{\sin}^{(k)}(t) = \sin\!\left(\frac{2\pi k t}{P}\right), \quad k = 1,2,3,\dots
-\]
+$$
 
-\phi_{\cos}^{(k)}(t)
-=
-\cos\!\left(
-\frac{2\pi k t}{P}
-\right)
+$$
+\phi_{\cos}^{(k)}(t) = \cos\!\left(\frac{2\pi k t}{P}\right)$$
 
 where
 
