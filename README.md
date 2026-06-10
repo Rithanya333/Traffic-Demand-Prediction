@@ -159,9 +159,21 @@ Temporal features capture recurring traffic patterns such as:
 
 To preserve cyclic continuity, Fourier harmonic encodings are used instead of raw timestamps.
 
-For a cycle period \(P\),
+## Stage 2: Feature Engineering
 
-For a periodic signal with period $P$, the $k$-th harmonic Fourier encoding is defined as
+Feature engineering constitutes the most important component of the forecasting pipeline. The objective is to transform raw observations into representations that expose latent temporal, spatial, and historical traffic dynamics.
+
+The generated features can be broadly categorized into temporal, spatial, and historical representations.
+
+---
+
+### Temporal Features
+
+Traffic demand exhibits strong cyclical behavior across multiple time horizons, including hourly, daily, and weekly patterns. A direct numerical representation of time is often inadequate because cyclical variables possess periodic continuity. For example, 23:00 and 00:00 are temporally adjacent despite being numerically distant.
+
+To preserve cyclic relationships, Fourier harmonic encodings are employed.
+
+For a periodic signal with period \(P\), the \(k\)-th harmonic representation is defined as
 
 $$
 \phi_{\sin}^{(k)}(t)
@@ -181,44 +193,116 @@ $$
 
 where
 
-- $t$ denotes the temporal index,
-- $P$ denotes the cycle period,
-- $k$ denotes the harmonic order.
-  
-This representation allows the model to learn periodic demand behaviour more effectively.
+| Symbol | Description |
+|----------|----------|
+| \(t\) | Temporal index |
+| \(P\) | Length of the cycle period |
+| \(k\) | Harmonic order |
+| \(\phi_{\sin}^{(k)}\) | Sine harmonic encoding |
+| \(\phi_{\cos}^{(k)}\) | Cosine harmonic encoding |
+
+The resulting feature space preserves periodic continuity and enables the model to learn recurring traffic patterns more effectively than conventional timestamp representations.
+
+Examples include:
+
+$$
+Hour_{\sin}
+=
+\sin\!\left(
+\frac{2\pi \cdot Hour}{24}
+\right)
+$$
+
+$$
+Hour_{\cos}
+=
+\cos\!\left(
+\frac{2\pi \cdot Hour}{24}
+\right)
+$$
+
+$$
+DayOfWeek_{\sin}
+=
+\sin\!\left(
+\frac{2\pi \cdot DayOfWeek}{7}
+\right)
+$$
+
+$$
+DayOfWeek_{\cos}
+=
+\cos\!\left(
+\frac{2\pi \cdot DayOfWeek}{7}
+\right)
+$$
+
+---
 
 ### Spatial Features
 
-Traffic demand varies significantly across geographic regions.
+Traffic demand is strongly influenced by geographic location. Urban centers, residential regions, industrial zones, and transportation corridors often exhibit significantly different traffic patterns.
 
-Geohashes are decoded into latitude-longitude coordinates and clustered using K-Means.
+To capture these spatial dependencies, geohashes are first decoded into latitude-longitude coordinates
 
 $$
-\underset{\{\mathbf{c}_k\}_{k=1}^{K}}
-{\operatorname{argmin}}
+g_i
+\longrightarrow
+(lat_i, lon_i)
+$$
+
+where \(g_i\) denotes the geospatial identifier associated with observation \(i\).
+
+Subsequently, K-Means clustering is employed to identify regions exhibiting similar traffic behavior.
+
+The clustering objective is formulated as
+
+$$
+\min_{\{\mathbf{c}_k\}_{k=1}^{K}}
 \sum_{i=1}^{N}
-\min_k
+\min_{k}
 \left\|
 \mathbf{x}_i-\mathbf{c}_k
 \right\|_2^2
 $$
 
-The resulting clusters help identify regions exhibiting similar traffic characteristics.
+where
+
+| Symbol | Description |
+|----------|----------|
+| \(N\) | Number of observations |
+| \(K\) | Number of clusters |
+| \(\mathbf{x}_i\) | Spatial coordinate vector |
+| \(\mathbf{c}_k\) | Cluster centroid |
+| \(\|\cdot\|_2\) | Euclidean distance |
+
+The resulting cluster assignments serve as region-level traffic descriptors and enable the forecasting models to learn location-specific demand patterns.
+
+---
 
 ### Historical Demand Features
 
-Traffic demand exhibits strong autocorrelation.
+Traffic demand exhibits significant temporal autocorrelation. Future traffic levels are frequently influenced by recent demand observations as well as longer-term seasonal trends.
 
-Historical memory is incorporated through:
+To capture this temporal memory, lag-based and rolling statistical features are generated.
 
-| Feature Type | Purpose |
-|-------------|----------|
-| Lag Features | Previous demand information |
-| Rolling Mean | Trend estimation |
-| Rolling Variance | Volatility estimation |
-| Rolling Standard Deviation | Demand stability |
+A lag feature with offset \(h\) is defined as
 
-Examples:
+$$
+Lag_t^{(h)}
+=
+y_{t-h}
+$$
+
+where
+
+| Symbol | Description |
+|----------|----------|
+| \(y_t\) | Traffic demand at time \(t\) |
+| \(h\) | Lag horizon |
+| \(Lag_t^{(h)}\) | Historical demand observation |
+
+Examples include
 
 $$
 Lag_t^{(24)}
@@ -232,92 +316,126 @@ Lag_t^{(168)}
 y_{t-168}
 $$
 
+which capture daily and weekly seasonality respectively.
+
+To characterize local trends, rolling mean features are computed as
+
+$$
+RM_t^{(w)}
+=
+\frac{1}{w}
+\sum_{i=1}^{w}
+y_{t-i}
+$$
+
+where \(w\) denotes the rolling window size.
+
+Demand volatility is represented through rolling variance
+
+$$
+RV_t^{(w)}
+=
+\frac{1}{w}
+\sum_{i=1}^{w}
+\left(
+y_{t-i}
+-
+RM_t^{(w)}
+\right)^2
+$$
+
+and rolling standard deviation
+
+$$
+RSD_t^{(w)}
+=
+\sqrt{
+RV_t^{(w)}
+}
+$$
+
+Together, these features provide the model with information regarding demand momentum, local trends, and traffic volatility.
+
 ---
 
 ## Stage 3: Leakage-Safe Target Encoding
 
-High-cardinality categorical features are encoded using smoothed target encoding.
+Many categorical variables possess high cardinality and cannot be represented effectively using conventional one-hot encoding.
+
+To address this challenge, smoothed target encoding is employed.
+
+For a category \(c\), the encoded representation is defined as
 
 $$
 TE(c)
 =
 \frac{
-n_c\mu_c
+n_c \mu_c
 +
-\alpha\mu_g
+\alpha \mu_g
 }{
 n_c+\alpha
 }
 $$
 
-where:
+where
 
 | Symbol | Description |
 |----------|----------|
-| \(n_c\) | Category frequency |
-| \(\mu_c\) | Category mean |
-| \(\mu_g\) | Global mean |
-| \(\alpha\) | Smoothing parameter |
+| \(n_c\) | Number of observations in category \(c\) |
+| \(\mu_c\) | Mean target value of category \(c\) |
+| \(\mu_g\) | Global target mean |
+| \(\alpha\) | Smoothing coefficient |
 
-Cross-validation-based encoding is used to eliminate target leakage.
+The smoothing parameter prevents overfitting for rare categories by shrinking category statistics toward the global mean.
+
+To eliminate target leakage, target encoding is computed exclusively within cross-validation folds.
 
 ---
 
 ## Stage 4: Model Development
 
-Multiple tree-based learners are trained independently.
+Multiple gradient-boosting and tree-based learners are trained independently.
 
-| Model | Purpose |
-|---------|---------|
-| LightGBM Base | Primary learner |
-| LightGBM Aggressive | High-capacity learner |
-| LightGBM Alternative | Diversity learner |
-| XGBoost | Gradient boosting benchmark |
-| CatBoost | Categorical feature learner |
-| ExtraTrees | Variance reduction |
-| HistGradientBoosting | Histogram optimization |
-
-The prediction of a boosting model can be expressed as:
+The prediction of a boosting ensemble can be represented as
 
 $$
-\hat y_i
+\hat{y}_i
 =
 \sum_{m=1}^{M}
-\eta h_m(\mathbf{x}_i)
+\eta \,
+h_m(\mathbf{x}_i)
 $$
 
-where \(h_m\) denotes the \(m\)-th decision tree.
+where
+
+| Symbol | Description |
+|----------|----------|
+| \(\hat y_i\) | Predicted demand |
+| \(M\) | Number of boosting rounds |
+| \(\eta\) | Learning rate |
+| \(h_m(\cdot)\) | Decision tree at iteration \(m\) |
+| \(\mathbf{x}_i\) | Feature vector |
+
+This additive formulation allows the model to iteratively reduce prediction error while capturing complex nonlinear interactions among traffic features.
 
 ---
 
 ## Stage 5: Ensemble Optimization
 
-Predictions from all base learners are combined using weighted averaging.
+The final prediction is generated through weighted model aggregation.
 
-```mermaid
-flowchart LR
-
-A[OOF Predictions]
---> B[Optuna Optimization]
-
-B --> C[Optimal Weight Vector]
-
-C --> D[Weighted Ensemble]
-
-D --> E[Final Prediction]
-```
-
-The ensemble prediction is:
+Given \(K\) base learners, the ensemble prediction is defined as
 
 $$
-\hat y_i^{ensemble}
+\hat{y}_i^{ensemble}
 =
 \sum_{j=1}^{K}
 w_j
-\hat y_i^{(j)}
+\hat{y}_i^{(j)}
 $$
 
-subject to:
+subject to
 
 $$
 \sum_{j=1}^{K}
@@ -329,30 +447,45 @@ $$
 and
 
 $$
-w_j \ge 0
+w_j \ge 0,
+\qquad
+j=1,\ldots,K.
 $$
 
-Optuna is used to determine the optimal weights that maximize validation performance.
+Here,
+
+| Symbol | Description |
+|----------|----------|
+| \(w_j\) | Weight assigned to model \(j\) |
+| \(\hat y_i^{(j)}\) | Prediction from model \(j\) |
+| \(K\) | Number of base learners |
+
+The optimal weight vector is obtained through Bayesian optimization using Optuna.
 
 ---
 
 ## Stage 6: Prediction Calibration
 
-Even highly accurate models may produce predictions whose statistical distribution differs slightly from the target distribution.
+Although ensemble models achieve high predictive accuracy, the distribution of predictions may deviate slightly from the true target distribution.
 
-To address this issue, a calibration layer is introduced.
+To correct this discrepancy, a calibration factor is introduced
 
 $$
 CF
 =
 \frac{
-\mu_{expected}
+\mu_{\text{expected}}
 }{
-\mu_{OOF}
+\mu_{\text{OOF}}
 }
 $$
 
-The final prediction becomes:
+where
+
+- \(\mu_{\text{expected}}\) denotes the expected target mean,
+- \(\mu_{\text{OOF}}\) denotes the mean out-of-fold prediction.
+
+The calibrated prediction is computed as
 
 $$
 \hat y_i^{cal}
@@ -367,11 +500,13 @@ $$
 \right)
 $$
 
+ensuring that predictions remain within the valid target range.
+
 ---
 
 ## Evaluation Metric
 
-The coefficient of determination is used as the primary evaluation metric.
+Model performance is evaluated using the coefficient of determination \(R^2\)
 
 $$
 R^2
@@ -380,12 +515,30 @@ R^2
 -
 \frac{
 \sum_{i=1}^{N}
-(y_i-\hat y_i)^2
+\left(
+y_i-\hat y_i
+\right)^2
 }{
 \sum_{i=1}^{N}
-(y_i-\bar y)^2
+\left(
+y_i-\bar y
+\right)^2
 }
 $$
+
+where
+
+$$
+\bar y
+=
+\frac{1}{N}
+\sum_{i=1}^{N}
+y_i
+$$
+
+denotes the sample mean of the target variable.
+
+An \(R^2\) value closer to 1 indicates superior predictive performance and stronger explanatory power of the forecasting model.
 
 ---
 
