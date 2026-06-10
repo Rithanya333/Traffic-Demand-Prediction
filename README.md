@@ -161,24 +161,30 @@ To preserve cyclic continuity, Fourier harmonic encodings are used instead of ra
 
 For a cycle period \(P\),
 
+For a periodic signal with period $P$, the $k$-th harmonic Fourier encoding is defined as
+
 $$
-\phi_{\sin}^{(k)}
+\phi_{\sin}^{(k)}(t)
 =
-\sin
-\left(
-\frac{2\pi kt}{P}
+\sin\!\left(
+\frac{2\pi k t}{P}
 \right)
 $$
 
 $$
-\phi_{\cos}^{(k)}
+\phi_{\cos}^{(k)}(t)
 =
-\cos
-\left(
-\frac{2\pi kt}{P}
+\cos\!\left(
+\frac{2\pi k t}{P}
 \right)
 $$
 
+where
+
+- $t$ denotes the temporal index,
+- $P$ denotes the cycle period,
+- $k$ denotes the harmonic order.
+  
 This representation allows the model to learn periodic demand behaviour more effectively.
 
 ### Spatial Features
